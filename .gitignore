@@ -14,4 +14,7 @@ Thumbs.db
 
 # Modelos y Datos (¡Descomenta si son muy grandes!)
 dataset/
-# models/
+dataset_augmented/
+dataset_split/
+logs/
+Notebooks/
