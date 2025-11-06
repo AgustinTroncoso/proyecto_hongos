@@ -230,7 +230,7 @@ if __name__ == "__main__":
         
         # Clasificar únicamente test_image.jpeg
         print_header("ANÁLISIS DE test_image.jpeg")
-        
+        #cambiar el nombre de la imagen para poder elegir la imagen
         image_path = 'test_image6.jpeg'
         
         if os.path.exists(image_path):
