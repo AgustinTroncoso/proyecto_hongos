@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+tf-env/
+env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Archivos de Sistema
+.DS_Store
+Thumbs.db
+
+# Modelos y Datos (¡Descomenta si son muy grandes!)
+dataset/
+# models/

@@ -1,0 +1,10 @@
+
+tensorflow
+tensorflow-datasets
+jupyterlab
+
+matplotlib
+
+Pillow
+numpy
+scipy
