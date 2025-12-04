@@ -7,16 +7,51 @@ import matplotlib.pyplot as plt
 import os
 from sklearn.model_selection import train_test_split
 import shutil
+import mlflow
+import mlflow.tensorflow
+import mlflow.keras
+from datetime import datetime
 
-# Configuración optimizada para dataset pequeño
+# ============================================================================
+# CONFIGURACIÓN DE HIPERPARÁMETROS (Modificables para experimentación)
+# ============================================================================
 IMG_SIZE = 224
 BATCH_SIZE = 16  # Más pequeño para dataset pequeño
 EPOCHS = 100  # Más épocas con early stopping
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001
 DATASET_PATH = 'dataset_augmented'
 
+# Configuración de Data Augmentation
+ROTATION_RANGE = 40
+WIDTH_SHIFT = 0.3
+HEIGHT_SHIFT = 0.3
+SHEAR_RANGE = 0.3
+ZOOM_RANGE = 0.3
+
+# Configuración de Regularización
+DROPOUT_RATE_1 = 0.6
+DROPOUT_RATE_2 = 0.5
+DROPOUT_RATE_3 = 0.4
+L2_REGULARIZATION = 0.01
+
+# Configuración de Fine-tuning
+FINE_TUNE_LAYERS = 50
+
+# ============================================================================
+# CONFIGURACIÓN DE MLFLOW
+# ============================================================================
+mlflow.set_tracking_uri("file:./mlruns")  # Guarda experimentos localmente
+mlflow.set_experiment("morchella_classification")
+
+# Crear nombre de run único
+run_name = f"morchella_experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
 print("=" * 60)
-print("ENTRENAMIENTO OPTIMIZADO PARA DATASET PEQUEÑO (81+81 imágenes)")
+print("ENTRENAMIENTO CON MLFLOW - DATASET PEQUEÑO (81+81 imágenes)")
+print("=" * 60)
+print(f"📊 MLflow Tracking URI: {mlflow.get_tracking_uri()}")
+print(f"🔬 Experiment: {mlflow.get_experiment_by_name('morchella_classification').name}")
+print(f"🏃 Run Name: {run_name}")
 print("=" * 60)
 
 # 1. DIVISIÓN MANUAL DEL DATASET (80/10/10 train/val/test)
@@ -78,14 +113,14 @@ print("=" * 60)
 
 train_datagen = ImageDataGenerator(
     rescale=1./255,
-    rotation_range=40,           # Mayor rotación
-    width_shift_range=0.3,       # Mayor desplazamiento
-    height_shift_range=0.3,
-    shear_range=0.3,            # Mayor transformación
-    zoom_range=0.3,             # Mayor zoom
+    rotation_range=ROTATION_RANGE,
+    width_shift_range=WIDTH_SHIFT,
+    height_shift_range=HEIGHT_SHIFT,
+    shear_range=SHEAR_RANGE,
+    zoom_range=ZOOM_RANGE,
     horizontal_flip=True,
-    vertical_flip=True,          # También vertical
-    brightness_range=[0.7, 1.3], # Variación de brillo
+    vertical_flip=True,
+    brightness_range=[0.7, 1.3],
     fill_mode='nearest'
 )
 
@@ -127,6 +162,27 @@ print("\n" + "=" * 60)
 print("PASO 3: Creando modelo con Transfer Learning")
 print("=" * 60)
 
+# Iniciar MLflow Run
+mlflow.start_run(run_name=run_name)
+
+# Log de hiperparámetros
+mlflow.log_param("img_size", IMG_SIZE)
+mlflow.log_param("batch_size", BATCH_SIZE)
+mlflow.log_param("epochs", EPOCHS)
+mlflow.log_param("learning_rate", LEARNING_RATE)
+mlflow.log_param("rotation_range", ROTATION_RANGE)
+mlflow.log_param("width_shift", WIDTH_SHIFT)
+mlflow.log_param("height_shift", HEIGHT_SHIFT)
+mlflow.log_param("shear_range", SHEAR_RANGE)
+mlflow.log_param("zoom_range", ZOOM_RANGE)
+mlflow.log_param("dropout_1", DROPOUT_RATE_1)
+mlflow.log_param("dropout_2", DROPOUT_RATE_2)
+mlflow.log_param("dropout_3", DROPOUT_RATE_3)
+mlflow.log_param("l2_regularization", L2_REGULARIZATION)
+mlflow.log_param("fine_tune_layers", FINE_TUNE_LAYERS)
+mlflow.log_param("base_model", "MobileNetV2")
+mlflow.log_param("dataset_path", DATASET_PATH)
+
 base_model = keras.applications.MobileNetV2(
     input_shape=(IMG_SIZE, IMG_SIZE, 3),
     include_top=False,
@@ -150,19 +206,19 @@ model = keras.Sequential([
     layers.BatchNormalization(),
     
     # Dropout fuerte
-    layers.Dropout(0.6),
+    layers.Dropout(DROPOUT_RATE_1),
     
     # Capa densa con L2 regularization
     layers.Dense(256, activation='relu',
-                 kernel_regularizer=keras.regularizers.l2(0.01)),
+                 kernel_regularizer=keras.regularizers.l2(L2_REGULARIZATION)),
     
     layers.BatchNormalization(),
-    layers.Dropout(0.5),
+    layers.Dropout(DROPOUT_RATE_2),
     
     layers.Dense(128, activation='relu',
-                 kernel_regularizer=keras.regularizers.l2(0.01)),
+                 kernel_regularizer=keras.regularizers.l2(L2_REGULARIZATION)),
     
-    layers.Dropout(0.4),
+    layers.Dropout(DROPOUT_RATE_3),
     
     # Salida
     layers.Dense(1, activation='sigmoid')
@@ -181,6 +237,10 @@ model.compile(
 )
 
 model.summary()
+
+# Log del modelo
+mlflow.log_param("total_layers", len(model.layers))
+mlflow.log_param("trainable_params", model.count_params())
 
 # 4. CALLBACKS AVANZADOS
 print("\n" + "=" * 60)
@@ -240,18 +300,23 @@ print("\n" + "=" * 60)
 print("PASO 6: Fase 2 - Fine-tuning")
 print("=" * 60)
 
-# Descongelar últimas 50 capas
+# Descongelar últimas capas
 base_model.trainable = True
-fine_tune_at = len(base_model.layers) - 50
+fine_tune_at = len(base_model.layers) - FINE_TUNE_LAYERS
 
 for layer in base_model.layers[:fine_tune_at]:
     layer.trainable = False
 
-print(f"Capas entrenables: {sum([1 for layer in model.layers if layer.trainable])}")
+trainable_layers = sum([1 for layer in model.layers if layer.trainable])
+print(f"Capas entrenables: {trainable_layers}")
+mlflow.log_param("trainable_layers_finetuning", trainable_layers)
 
 # Re-compilar con LR más bajo
+fine_tune_lr = LEARNING_RATE/10
+mlflow.log_param("fine_tune_learning_rate", fine_tune_lr)
+
 model.compile(
-    optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE/10),
+    optimizer=keras.optimizers.Adam(learning_rate=fine_tune_lr),
     loss='binary_crossentropy',
     metrics=[
         'accuracy',
@@ -290,6 +355,14 @@ print(f"AUC:       {test_results[4]:.4f}")
 # Calcular F1-Score
 f1_score = 2 * (test_results[2] * test_results[3]) / (test_results[2] + test_results[3])
 print(f"F1-Score:  {f1_score:.4f}")
+
+# Log métricas en MLflow
+mlflow.log_metric("test_loss", test_results[0])
+mlflow.log_metric("test_accuracy", test_results[1])
+mlflow.log_metric("test_precision", test_results[2])
+mlflow.log_metric("test_recall", test_results[3])
+mlflow.log_metric("test_auc", test_results[4])
+mlflow.log_metric("test_f1_score", f1_score)
 
 # 8. ANÁLISIS DE PREDICCIONES
 print("\n" + "=" * 60)
@@ -411,10 +484,28 @@ plt.tight_layout()
 plt.savefig('training_results_small_dataset.png', dpi=300)
 print("✅ Gráficas guardadas: training_results_small_dataset.png")
 
+# Log de artefactos en MLflow
+mlflow.log_artifact('training_results_small_dataset.png')
+mlflow.log_artifact('best_morchella_small_dataset.h5')
+mlflow.log_artifact('morchella_classifier_small.tflite')
+
 # 11. GUARDAR ETIQUETAS
 with open('labels.txt', 'w') as f:
     for label, idx in train_generator.class_indices.items():
         f.write(f"{idx} {label}\n")
+
+mlflow.log_artifact('labels.txt')
+
+# Log del modelo en MLflow
+mlflow.keras.log_model(best_model, "model")
+
+# Registrar métricas adicionales
+mlflow.set_tag("model_type", "transfer_learning")
+mlflow.set_tag("dataset_size", "small")
+mlflow.set_tag("classes", "morchella, no_morchella")
+
+# Finalizar MLflow Run
+mlflow.end_run()
 
 print("\n" + "=" * 60)
 print("✅ ¡ENTRENAMIENTO COMPLETADO!")
@@ -424,9 +515,14 @@ print("1. best_morchella_small_dataset.h5")
 print("2. morchella_classifier_small.tflite")
 print("3. labels.txt")
 print("4. training_results_small_dataset.png")
+print("\n📊 MLflow:")
+print("- Todos los experimentos fueron guardados en MLflow")
+print("- Para ver los resultados, ejecuta: mlflow ui")
+print("- Luego abre: http://localhost:5000")
 print("\n💡 RECOMENDACIONES:")
 print("- El modelo está optimizado para dataset pequeño")
 print("- Se usó data augmentation agresivo")
 print("- La métrica AUC es más confiable que accuracy")
+print("- Usa MLflow para comparar experimentos y optimizar hiperparámetros")
 print("- Considera recolectar más imágenes si es posible")
 print("- Prueba el modelo extensivamente antes de usar en producción")

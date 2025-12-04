@@ -9,3 +9,7 @@ Pillow
 numpy
 scipy
 scikit-learn
+
+# MLflow para tracking de experimentos
+mlflow
+mlflow-skinny
