@@ -16,10 +16,15 @@ from datetime import datetime
 # CONFIGURACIÓN DE HIPERPARÁMETROS (Modificables para experimentación)
 # ============================================================================
 IMG_SIZE = 224
-BATCH_SIZE = 16  # Más pequeño para dataset pequeño
-EPOCHS = 100  # Más épocas con early stopping
-LEARNING_RATE = 0.001
-DATASET_PATH = 'dataset_augmented'
+BATCH_SIZE = 8
+EPOCHS = 25  # Más épocas con early stopping
+LEARNING_RATE = 0.0001
+# Rutas de datasets
+ORIGINAL_DATASET = 'dataset'                # nuevas imágenes originales
+AUGMENTED_DATASET = 'dataset_augmented'    # carpeta objetivo para training aumentada
+
+# Usaremos el dataset aumentado como fuente principal de entrenamiento
+DATASET_PATH = AUGMENTED_DATASET
 
 # Configuración de Data Augmentation
 ROTATION_RANGE = 40
@@ -49,9 +54,9 @@ run_name = f"morchella_experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 print("=" * 60)
 print("ENTRENAMIENTO CON MLFLOW - DATASET PEQUEÑO (81+81 imágenes)")
 print("=" * 60)
-print(f"📊 MLflow Tracking URI: {mlflow.get_tracking_uri()}")
-print(f"🔬 Experiment: {mlflow.get_experiment_by_name('morchella_classification').name}")
-print(f"🏃 Run Name: {run_name}")
+print(f"MLflow Tracking URI: {mlflow.get_tracking_uri()}")
+print(f"Experiment: {mlflow.get_experiment_by_name('morchella_classification').name}")
+print(f"Run Name: {run_name}")
 print("=" * 60)
 
 # 1. DIVISIÓN MANUAL DEL DATASET (80/10/10 train/val/test)
@@ -104,6 +109,32 @@ def create_split_dataset(source_dir, split_dir):
 
 # Crear división
 split_dir = 'dataset_split'
+def sync_original_to_augmented(orig_dir, augmented_dir):
+    """Copia/actualiza imágenes nuevas desde `dataset` a `dataset_augmented` manteniendo estructura de clases."""
+    classes = ['morchella', 'no_morchella']
+    for cls in classes:
+        src_cls = os.path.join(orig_dir, cls)
+        dst_cls = os.path.join(augmented_dir, cls)
+        if not os.path.exists(src_cls):
+            # No hay imágenes nuevas para esta clase
+            continue
+        os.makedirs(dst_cls, exist_ok=True)
+        for fname in os.listdir(src_cls):
+            if not fname.lower().endswith(('.jpg', '.jpeg', '.png')):
+                continue
+            src_f = os.path.join(src_cls, fname)
+            dst_f = os.path.join(dst_cls, fname)
+            try:
+                # Copiar si no existe o si el origen es más nuevo
+                if (not os.path.exists(dst_f)) or (os.path.getmtime(src_f) > os.path.getmtime(dst_f)):
+                    shutil.copy2(src_f, dst_f)
+            except Exception:
+                # Ignorar errores de copia individuales
+                pass
+
+# Sincronizar nuevas imágenes desde el dataset original hacia dataset_augmented
+sync_original_to_augmented(ORIGINAL_DATASET, AUGMENTED_DATASET)
+
 create_split_dataset(DATASET_PATH, split_dir)
 
 # 2. DATA AUGMENTATION AGRESIVO para dataset pequeño
@@ -287,7 +318,7 @@ print("=" * 60)
 
 history1 = model.fit(
     train_generator,
-    epochs=50,
+    epochs=25,
     validation_data=validation_generator,
     callbacks=callbacks,
     verbose=1,
@@ -329,7 +360,7 @@ model.compile(
 # Continuar entrenamiento
 history2 = model.fit(
     train_generator,
-    epochs=50,
+    epochs=25,
     validation_data=validation_generator,
     callbacks=callbacks,
     verbose=1
@@ -345,7 +376,7 @@ best_model = keras.models.load_model('best_morchella_small_dataset.h5')
 
 # Evaluar
 test_results = best_model.evaluate(test_generator)
-print(f"\n📊 RESULTADOS EN TEST SET:")
+print(f"\nRESULTADOS EN TEST SET:")
 print(f"Loss:      {test_results[0]:.4f}")
 print(f"Accuracy:  {test_results[1]:.4f} ({test_results[1]*100:.2f}%)")
 print(f"Precision: {test_results[2]:.4f}")
@@ -379,12 +410,12 @@ y_true = test_generator.classes
 from sklearn.metrics import confusion_matrix, classification_report
 
 cm = confusion_matrix(y_true, y_pred)
-print("\n📈 Matriz de Confusión:")
+print("\nMatriz de Confusión:")
 print(f"                Pred: No-Morchella  Pred: Morchella")
 print(f"True No-Morchella:   {cm[0][0]:3d}              {cm[0][1]:3d}")
 print(f"True Morchella:      {cm[1][0]:3d}              {cm[1][1]:3d}")
 
-print("\n📋 Reporte de Clasificación:")
+print("\nReporte de Clasificación:")
 print(classification_report(y_true, y_pred, 
                           target_names=['No-Morchella', 'Morchella']))
 
@@ -413,8 +444,8 @@ tflite_model = converter.convert()
 with open('morchella_classifier_small.tflite', 'wb') as f:
     f.write(tflite_model)
 
-print(f"✅ Modelo guardado: morchella_classifier_small.tflite")
-print(f"📦 Tamaño: {len(tflite_model) / 1024 / 1024:.2f} MB")
+print(f"Modelo guardado: morchella_classifier_small.tflite")
+print(f"Tamaño: {len(tflite_model) / 1024 / 1024:.2f} MB")
 
 # 10. VISUALIZACIÓN DE RESULTADOS
 print("\n" + "=" * 60)
@@ -482,7 +513,7 @@ for i in range(2):
 plt.colorbar(im, ax=axes[1, 1])
 plt.tight_layout()
 plt.savefig('training_results_small_dataset.png', dpi=300)
-print("✅ Gráficas guardadas: training_results_small_dataset.png")
+print("Gráficas guardadas: training_results_small_dataset.png")
 
 # Log de artefactos en MLflow
 mlflow.log_artifact('training_results_small_dataset.png')
@@ -508,18 +539,18 @@ mlflow.set_tag("classes", "morchella, no_morchella")
 mlflow.end_run()
 
 print("\n" + "=" * 60)
-print("✅ ¡ENTRENAMIENTO COMPLETADO!")
+print("ENTRENAMIENTO COMPLETADO")
 print("=" * 60)
-print("\n📁 Archivos generados:")
+print("\nArchivos generados:")
 print("1. best_morchella_small_dataset.h5")
 print("2. morchella_classifier_small.tflite")
 print("3. labels.txt")
 print("4. training_results_small_dataset.png")
-print("\n📊 MLflow:")
+print("\nMLflow:")
 print("- Todos los experimentos fueron guardados en MLflow")
 print("- Para ver los resultados, ejecuta: mlflow ui")
 print("- Luego abre: http://localhost:5000")
-print("\n💡 RECOMENDACIONES:")
+print("\nRECOMENDACIONES:")
 print("- El modelo está optimizado para dataset pequeño")
 print("- Se usó data augmentation agresivo")
 print("- La métrica AUC es más confiable que accuracy")
